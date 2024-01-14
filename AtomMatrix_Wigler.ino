@@ -116,7 +116,7 @@ void loop() {
           // blink the LED for the channel ** this will impact performance if interval is too big
           blinkLEDchannel(colorPerChannel[channel],100,channel);
           // blink the actual channel number
-          blinkLEDnumber(colorPerChannel[channel],100,channel);
+//          blinkLEDnumber(colorPerChannel[channel],100,channel);
         }
       }
       // Update the scan duration for this channel based on the results
