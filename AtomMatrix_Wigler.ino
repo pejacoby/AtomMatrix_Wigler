@@ -90,7 +90,7 @@ void loop() {
       M5.dis.drawpix(LED_ACTIVE, GREEN);  // Flash green without a static blink 
       delay(120);
       M5.dis.drawpix(LED_ACTIVE,OFF); // turn off just the pixel
-//      M5.dis.clear();  // clear the whole display
+      M5.dis.clear();  // clear the whole display -- do we need this??  Seems like it for other lights to be accurate
       lastBlinkTime = currentMillis;
     }
 
