@@ -292,8 +292,7 @@ void fillDisplay(int fillColor) {
 void updateGpsStatusDisplay(float accuracy, int color) {
   float scaleFactor = 2.25; // delta between VU steps
   float threshold = 2; // initial threshold for "full" VU meter setting
-  int colorGPS[5] = { 0x7B68EE, 0x9370DB, 0x9400D3, 0xBA55D3, PURPLE }; // some purples in ascending shades
- //  int colorGPS[5] = { 0xE5CCFF, 0xCC99FF, 0xB266FF, 0x9933FF, 0x7F00FF }; // some purples in ascending shades
+  int colorGPS[5] = { 0x200000, 0x400000, 0x600000, 0x800000, 0xA00000 }; // All RED but shades thereof
 
   M5.dis.drawpix(20,colorGPS[0]); // if we have a fix, leave first/lowest LED set
 
