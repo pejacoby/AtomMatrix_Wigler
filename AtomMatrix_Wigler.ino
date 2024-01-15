@@ -21,8 +21,9 @@ bool buttonLedState = true;
 // LED positions -- the M5Matrix has a 5x5 LED display, array [0,24]
 #define LED_CENTER 12 // Center of M5Matrix screen
 #define LED_ACTIVE 17 // Active Status - 4th row center
-// #define LED_ACTIVE 0 // if running on M5Atom with single LED
 #define LED_GPSFIX 20 // GPS fix indicator, 5th row 1st LED
+#define LED_COUNT 25  // M5Matrix has 25 LEDs
+// #define LED_ACTIVE 0 // if running on M5Atom with single LED
 
 // GPS and Filesys
 TinyGPSPlus gps;
@@ -38,6 +39,11 @@ const int rareChannels[] = { 12, 13, 14 };  // Depending on region
 int timePerChannel[14] = { 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200 };
 // colors for channels
 int colorPerChannel[14] = {GREEN, BLUE, BLUE, BLUE, BLUE, GREEN, BLUE, BLUE, BLUE, BLUE, GREEN, CYAN, CYAN, CYAN};
+// global arrays for matrix numbers and characters
+int capW[LED_COUNT]; int capI[LED_COUNT]; int lowI[LED_COUNT]; int capF[LED_COUNT];
+int one[LED_COUNT]; int two[LED_COUNT]; int three[LED_COUNT]; int four[LED_COUNT]; int five[LED_COUNT]; int six[LED_COUNT];
+int seven[LED_COUNT]; int eight[LED_COUNT]; int nine[LED_COUNT]; int ten[LED_COUNT]; int eleven[LED_COUNT];
+int twelve[LED_COUNT]; int thirteen[LED_COUNT]; int fourteen[LED_COUNT];
 // array of arrays of all display numbers
 int *displayNumbers[15] = { };
 
