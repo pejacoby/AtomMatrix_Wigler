@@ -3,11 +3,16 @@
 #include <SPI.h>
 #include <TinyGPS++.h>
 #include <WiFi.h>
-// AtomMatrix_Wigler v ?? -- very much a playground
-// Based on Version 1.3.2 from https://github.com/lukeswitz/AtomGPS_wigler/
+// AtomMatrix_Wigler v ?? -- very much a playground - NOT A PROPER FORK - I need to do that
+// Based on AtomGPS_wigler Version 1.3.2 from https://github.com/lukeswitz/AtomGPS_wigler/
 // LED
-bool ledState = false;
-bool buttonLedState = true;
+bool ledState = false;  // is the LED on or off (from M5GPS with single LED)
+bool buttonLedState = true;      // button press should toggle the light show on/off
+// flags to control what is displayed on the MATRIX 5x5 LED screen
+bool showChannelLED = true;      // flash the LED corresponding to found channel number
+bool showChannelNumber = false;  // show the Channel number of each channel as found
+bool showScanCount = false;      // show the number of networks found in each scan pass 
+
 // useful color constants (RGB)
 #define RED 0xff0000
 #define GREEN 0x00ff00
@@ -31,6 +36,7 @@ char fileName[50];
 const int maxMACs = 150;  // TESTING: buffer size
 char macAddressArray[maxMACs][20];
 int macArrayIndex = 0;
+float gpsAccuracy = 0;  // global for status update use
 
 // Network Scanning
 const int popularChannels[] = { 1, 6, 11 };
@@ -39,14 +45,156 @@ const int rareChannels[] = { 12, 13, 14 };  // Depending on region
 int timePerChannel[14] = { 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200 };
 // colors for channels
 int colorPerChannel[14] = {GREEN, BLUE, BLUE, BLUE, BLUE, GREEN, BLUE, BLUE, BLUE, BLUE, GREEN, CYAN, CYAN, CYAN};
-// global arrays for matrix numbers and characters
-int capW[LED_COUNT]; int capI[LED_COUNT]; int lowI[LED_COUNT]; int capF[LED_COUNT];
-int one[LED_COUNT]; int two[LED_COUNT]; int three[LED_COUNT]; int four[LED_COUNT]; int five[LED_COUNT]; int six[LED_COUNT];
-int seven[LED_COUNT]; int eight[LED_COUNT]; int nine[LED_COUNT]; int ten[LED_COUNT]; int eleven[LED_COUNT];
-int twelve[LED_COUNT]; int thirteen[LED_COUNT]; int fourteen[LED_COUNT];
-// array of arrays of all display numbers
-int *displayNumbers[15] = { };
 
+// Lots of arrays to define characters for the display
+// define letters for the display
+  int capW[25] = {
+  1,0,0,0,1,
+  1,0,0,0,1,
+  1,0,1,0,1,
+  1,1,0,1,1,
+  1,0,0,0,1
+  };
+  int capI[25] = {
+  1,1,1,1,1,
+  0,0,1,0,0,
+  0,0,1,0,0,
+  0,0,1,0,0,
+  1,1,1,1,1
+  };
+  int lowI[25] = {
+  0,0,1,0,0,
+  0,0,0,0,0,
+  0,0,1,0,0,
+  0,0,1,0,0,
+  0,1,1,1,0
+  };
+  int capF[25] = {
+  1,1,1,1,1,
+  1,0,0,0,0,
+  1,1,1,1,0,
+  1,0,0,0,0,
+  1,0,0,0,0
+  };
+  int plusSign[25] = {
+  0,0,0,0,0,
+  0,0,1,0,0,
+  0,1,1,1,0,
+  0,0,1,0,0,
+  0,0,0,0,0
+  };
+
+// define numbers for the display - Fill the GLOBAL variables
+  int zero[25] = {
+  0,0,1,1,0,
+  0,1,0,0,1,
+  0,1,0,0,1,
+  0,1,0,0,1,
+  0,0,1,1,0
+  };
+  int one[25] = {
+  0,0,1,0,0,
+  0,1,1,0,0,
+  0,0,1,0,0,
+  0,0,1,0,0,
+  0,1,1,1,0
+  };
+  int two[25] = {
+  0,1,1,1,1,
+  0,0,0,0,1,
+  0,0,1,1,1,
+  0,1,0,0,0,
+  0,1,1,1,1
+  };
+  int three[25] = {
+  0,1,1,1,1,
+  0,0,0,0,1,
+  0,0,1,1,0,
+  0,0,0,0,1,
+  0,1,1,1,1
+  };
+  int four[25] = {
+  0,1,0,0,1,
+  0,1,0,0,1,
+  0,1,1,1,1,
+  0,0,0,0,1,
+  0,0,0,0,1
+  };
+  int five[25] = {
+  0,1,1,1,1,
+  0,1,0,0,0,
+  0,1,1,1,1,
+  0,0,0,0,1,
+  0,1,1,1,1
+  };
+  int six[25] = {
+  0,0,1,1,1,
+  0,1,0,0,0,
+  0,1,1,1,1,
+  0,1,0,0,1,
+  0,1,1,1,1
+  };
+  int seven[25] = {
+  0,1,1,1,1,
+  0,0,0,1,0,
+  0,0,1,0,0,
+  0,0,1,0,0,
+  0,0,1,0,0
+  };
+  int eight[25] = {
+  0,1,1,1,1,
+  0,1,0,0,1,
+  0,0,1,1,0,
+  0,1,0,0,1,
+  0,1,1,1,1
+  };
+  int nine[25] = {
+  0,1,1,1,1,
+  0,1,0,0,1,
+  0,1,1,1,1,
+  0,0,0,0,1,
+  0,0,0,0,1
+  };
+  int ten[25] = {
+  1,0,1,1,1,
+  1,0,1,0,1,
+  1,0,1,0,1,
+  1,0,1,0,1,
+  1,0,1,1,1
+  };
+  int eleven[25] = {
+  1,0,0,1,0,
+  1,0,1,1,0,
+  1,0,0,1,0,
+  1,0,0,1,0,
+  1,0,1,1,1
+  };
+  int twelve[25] = {
+  1,0,1,1,1,
+  1,0,0,0,1,
+  1,0,1,1,1,
+  1,0,1,0,0,
+  1,0,1,1,1
+  };
+  int thirteen[25] = {
+  1,0,1,1,1,
+  1,0,0,0,1,
+  1,0,0,1,1,
+  1,0,0,0,1,
+  1,0,1,1,1
+  };
+  int fourteen[25] = {
+  1,0,1,0,1,
+  1,0,1,0,1,
+  1,0,1,1,1,
+  1,0,0,0,1,
+  1,0,0,0,1
+  };
+// array of all of the Number arrays for later use
+int *displayNumbers[15] = { zero, one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen, fourteen };
+
+
+//  Let the Action Begin //
 
 void setup() {
   Serial.begin(115200);
@@ -96,7 +244,7 @@ void loop() {
       M5.dis.drawpix(LED_ACTIVE, GREEN);  // Flash green without a static blink 
       delay(120);
       M5.dis.drawpix(LED_ACTIVE,OFF); // turn off just the pixel
-      M5.dis.clear();  // clear the whole display -- do we need this??  Seems like it for other lights to be accurate
+      // M5.dis.clear();  // clear the whole display -- was used in Luke's code, shouldn't need it for Matrix
       lastBlinkTime = currentMillis;
     }
 
@@ -104,6 +252,8 @@ void loop() {
     float lon = gps.location.lng();
     float altitude = gps.altitude.meters();
     float accuracy = gps.hdop.hdop();
+    gpsAccuracy = accuracy;  // assign to global for update routine use
+
     char utc[21];
     sprintf(utc, "%04d-%02d-%02d %02d:%02d:%02d", gps.date.year(), gps.date.month(), gps.date.day(), gps.time.hour(), gps.time.minute(), gps.time.second());
     // Dynamic async per-channel scanning
@@ -118,23 +268,38 @@ void loop() {
           char dataString[300];
           snprintf(dataString, sizeof(dataString), "%s,\"%s\",%s,%s,%d,%d,%.6f,%.6f,%.2f,%.2f,WIFI", currentMAC, WiFi.SSID(i).c_str(), getAuthType(WiFi.encryptionType(i)), utc, WiFi.channel(i), WiFi.RSSI(i), lat, lon, altitude, accuracy);
           logData(dataString);
-
-          // blink the LED for the channel ** this will impact performance if interval is too big
-          blinkLEDchannel(colorPerChannel[channel],100,channel);
-          // blink the actual channel number
-//          blinkLEDnumber(colorPerChannel[channel],100,channel);
         }
       }
       // Update the scan duration for this channel based on the results
       updateTimePerChannel(channel, numNetworks);
 
-      // update GPS status bar
-      updateGpsStatusDisplay(accuracy,PURPLE);
+      // blink the LED for the channel ** this will impact performance if interval is too big
+      if (showChannelLED && numNetworks > 0) {
+        blinkLEDchannel(colorPerChannel[channel - 1],100,channel);
+      }
+      // blink the actual channel number
+      if (showChannelNumber && numNetworks > 0) {
+        blinkLEDnumber(colorPerChannel[channel],75,channel);
+      }
+      // display the count of networks found this round - keep it 14 or fewer unless we define more numbers :)
+      if (showScanCount && numNetworks > 0) {
+        int myCount;
+        if (numNetworks <= 14) {
+            myCount = numNetworks;
+        } else {
+            myCount = 14;
+        }
+        blinkLEDnumber(CYAN,75,myCount);
+      }
 
     }
   } else {
     blinkLED(PURPLE, 500);  // waiting for GPS fix
   }
+
+  // update GPS status bar -- do this less frequently via global variable
+  updateGpsStatusDisplay(gpsAccuracy,RED);
+
   delay(250);  // tested against 0,150,500 to yield most nets
 }
 
@@ -149,35 +314,6 @@ void blinkLED(uint32_t color, unsigned long interval) {
     previousBlinkMillis = currentMillis;
   }
 }
-
-// blink the LED corresponding to the channel position in the matrix
-// make this fast so we don't kill performance
-void blinkLEDchannel(uint32_t color, unsigned long interval, int position) {
-  static unsigned long previousBlinkMillis = 0;
-  unsigned long currentMillis = millis();
-
-  if (currentMillis - previousBlinkMillis >= interval) {
-    ledState = !ledState;
-    M5.dis.drawpix(position - 1, ledState ? color : OFF); // blink the LED corresponding to the channel
-    previousBlinkMillis = currentMillis;
-  }
-}
-
-// display the channel number seen from character array -- for extra fun - ****
-//  ** NEED TO GET THE displayNumbers array into scope to use it at this point
-void blinkLEDnumber(uint32_t color, unsigned long interval, int dispNum) {
-  static unsigned long previousBlinkMillis = 0;
-  unsigned long currentMillis = millis();
-
-  if (currentMillis - previousBlinkMillis >= interval) {
-    ledState = !ledState;
-    displayChar(displayNumbers[dispNum], ledState ? color : OFF); // number from array of LED representations
-//    M5.dis.drawpix(position - 1, ledState ? color : OFF); // blink the LED corresponding to the channel
-    previousBlinkMillis = currentMillis;
-  }
-  Serial.println("blinkLEDnumber: " + String(dispNum));
-}
-
 
 // connect to GPS and hold until we have a fix, blinking LED PURPLE while we wait
 void waitForGPSFix() {
@@ -285,6 +421,32 @@ void updateTimePerChannel(int channel, int networksFound) {
   }
 }
 
+// blink the LED corresponding to the channel position in the matrix
+// make this fast so we don't kill performance
+void blinkLEDchannel(uint32_t color, unsigned long interval, int position) {
+  static unsigned long previousBlinkMillis = 0;
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousBlinkMillis >= interval) {
+    ledState = !ledState;
+    M5.dis.drawpix(position - 1, ledState ? color : OFF); // blink the LED corresponding to the channel
+    previousBlinkMillis = currentMillis;
+  }
+}
+
+// display the channel number seen from character array -- for extra fun - ****
+void blinkLEDnumber(uint32_t color, unsigned long interval, int dispNum) {
+  static unsigned long previousBlinkMillis = 0;
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousBlinkMillis >= interval) {
+    ledState = !ledState;
+    displayChar(displayNumbers[dispNum], ledState ? color : OFF); // channel number character from array of LED representations
+    previousBlinkMillis = currentMillis;
+  }
+//  Serial.println("blinkLEDnumber: " + String(dispNum));
+}
+
 // fill the whole display with one color
 // this is the same as M5.dis.fillpix(color)  !!!
 void fillDisplay(int fillColor) {
@@ -298,7 +460,7 @@ void fillDisplay(int fillColor) {
 void updateGpsStatusDisplay(float accuracy, int color) {
   float scaleFactor = 2.25; // delta between VU steps
   float threshold = 2; // initial threshold for "full" VU meter setting
-  int colorGPS[5] = { 0x200000, 0x400000, 0x600000, 0x800000, 0xA00000 }; // All RED but shades thereof
+  int colorGPS[5] = { 0x200000, 0x400000, 0x600000, 0x800000, 0xA00000 }; // All RED but shades thereof - brighter to the right
 
   M5.dis.drawpix(20,colorGPS[0]); // if we have a fix, leave first/lowest LED set
 
@@ -306,7 +468,7 @@ void updateGpsStatusDisplay(float accuracy, int color) {
 // more LEDs for more accuracy, so we count backwards from the right
   for (int i = 24; i > 20; i--) {
     if (accuracy <= threshold) {
-       M5.dis.drawpix(i, colorGPS[i-20]);   // was just 'color'
+       M5.dis.drawpix(i, colorGPS[i-20]);
     } else {
       M5.dis.drawpix(i, OFF);
     }
@@ -322,161 +484,17 @@ void displayChar(int arr[], int color) {
   for(int i = 0; i < 25; i++) {
     if (arr[i] == 1) {
        pixelColor = color;
-//       Serial.print("1, ");
     } else {
        pixelColor = OFF;
-//       Serial.print("0, ");
     };
     M5.dis.drawpix(i,pixelColor);
 //    delay(20);
   }
-    Serial.println("Displayed char...");
+//  Serial.println("Displayed char...");
 }
 
-// A silly introduction to the unit - display the word "WiFi"
+// silly startup display
 void openingWords() {
-
-  //  setupDisplayChars();  // could put this in a subroutine for cleanliness
-  // define letters for the display
-  int capW[25] = {
-  1,0,0,0,1,
-  1,0,0,0,1,
-  1,0,1,0,1,
-  1,1,0,1,1,
-  1,0,0,0,1
-  };
-  int capI[25] = {
-  1,1,1,1,1,
-  0,0,1,0,0,
-  0,0,1,0,0,
-  0,0,1,0,0,
-  1,1,1,1,1
-  };
-  int lowI[25] = {
-  0,0,1,0,0,
-  0,0,0,0,0,
-  0,0,1,0,0,
-  0,0,1,0,0,
-  0,1,1,1,0
-  };
-  int capF[25] = {
-  1,1,1,1,1,
-  1,0,0,0,0,
-  1,1,1,1,0,
-  1,0,0,0,0,
-  1,0,0,0,0
-  };
-
-  // define numbers for the display
-  int zero[25] = {
-  0,0,1,1,0,
-  0,1,0,0,1,
-  0,1,0,0,1,
-  0,1,0,0,1,
-  0,0,1,1,0
-  };
-  int one[25] = {
-  0,0,1,0,0,
-  0,1,1,0,0,
-  0,0,1,0,0,
-  0,0,1,0,0,
-  0,1,1,1,0
-  };
-  int two[25] = {
-  0,1,1,1,1,
-  0,0,0,0,1,
-  0,0,1,1,1,
-  0,1,0,0,0,
-  0,1,1,1,1
-  };
-  int three[25] = {
-  0,1,1,1,1,
-  0,0,0,0,1,
-  0,0,1,1,0,
-  0,0,0,0,1,
-  0,1,1,1,1
-  };
-  int four[25] = {
-  0,1,0,0,1,
-  0,1,0,0,1,
-  0,1,1,1,1,
-  0,0,0,0,1,
-  0,0,0,0,1
-  };
-  int five[25] = {
-  0,1,1,1,1,
-  0,1,0,0,0,
-  0,1,1,1,1,
-  0,0,0,0,1,
-  0,1,1,1,1
-  };
-  int six[25] = {
-  0,0,1,1,1,
-  0,1,0,0,0,
-  0,1,1,1,1,
-  0,1,0,0,1,
-  0,1,1,1,1
-  };
-  int seven[25] = {
-  0,1,1,1,1,
-  0,0,0,1,0,
-  0,0,1,0,0,
-  0,0,1,0,0,
-  0,0,1,0,0
-  };
-  int eight[25] = {
-  0,1,1,1,1,
-  0,1,0,0,1,
-  0,0,1,1,0,
-  0,1,0,0,1,
-  0,1,1,1,1
-  };
-  int nine[25] = {
-  0,1,1,1,1,
-  0,1,0,0,1,
-  0,1,1,1,1,
-  0,0,0,0,1,
-  0,0,0,0,1
-  };
-  int ten[25] = {
-  1,0,1,1,1,
-  1,0,1,0,1,
-  1,0,1,0,1,
-  1,0,1,0,1,
-  1,0,1,1,1
-  };
-  int eleven[25] = {
-  1,0,0,1,0,
-  1,0,1,1,0,
-  1,0,0,1,0,
-  1,0,0,1,0,
-  1,0,1,1,1
-  };
-  int twelve[25] = {
-  1,0,1,1,1,
-  1,0,0,0,1,
-  1,0,1,1,1,
-  1,0,1,0,0,
-  1,0,1,1,1
-  };
-  int thirteen[25] = {
-  1,0,1,1,1,
-  1,0,0,0,1,
-  1,0,0,1,1,
-  1,0,0,0,1,
-  1,0,1,1,1
-  };
-  int fourteen[25] = {
-  1,0,1,0,1,
-  1,0,1,0,1,
-  1,0,1,1,1,
-  1,0,0,0,1,
-  1,0,0,0,1
-  };
-
-  // array of arrays of all display numbers
-  int *displayNumbers[15] = { zero, one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen, fourteen };
- 
   // roll a color background
   fillDisplay(GREEN);
   delay(500);
@@ -494,14 +512,15 @@ void openingWords() {
   delay(500);
   displayChar(lowI,GREEN);
   delay(500);
-
+  displayChar(plusSign,RED);
+  delay(500);
   fillDisplay(OFF);
 
-  // run all the numbers
+  // show all the numbers
   Serial.println("Displaying all the number shapes...");
   for (int i = 0; i < 15; i++) {
     displayChar(displayNumbers[i], CYAN);
-    delay(500);
+    delay(400);
     M5.dis.clear();
   }
 
