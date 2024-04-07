@@ -1,0 +1,298 @@
+#include <M5Atom.h>
+#include <SD.h>
+#include <SPI.h>
+#include <TinyGPS++.h>
+#include <WiFi.h>
+
+// AtomMatrix_Wigler v1.5 -- Paul Jacoby - very much a playground
+// Based on AtomGPS_wigler Version 1.4.0b3 from https://github.com/lukeswitz/AtomGPS_wigler/
+
+const String BUILD = "1.4.0b3";
+const String VERSION = "1.4";
+
+// LED
+bool ledState = false;
+bool buttonLedState = true;
+// flags to control what is displayed on the MATRIX 5x5 LED screen
+bool showChannelLED = true;      // flash the LED corresponding to found channel number
+
+// userful color constants (RGB)
+#define RED 0xff0000
+#define GREEN 0x00ff00
+#define BLUE 0x0000ff
+#define YELLOW 0xffff00
+#define PURPLE 0x800080
+#define CYAN 0x00ffff
+#define WHITE 0xffffff
+#define OFF 0x000000
+
+// LED positions -- the M5Matrix has a 5x5 LED display, array [0,24]
+#define LED_CENTER 12 // Center of M5Matrix screen
+#define LED_ACTIVE 17 // Active Status - 4th row center
+#define LED_GPSFIX 20 // GPS fix indicator, 5th row 1st LED
+#define LED_COUNT 25  // M5Matrix has 25 LEDs
+
+// GPS and Filesys
+TinyGPSPlus gps;
+char fileName[50];
+const int maxMACs = 150;  // TESTING: buffer size
+char macAddressArray[maxMACs][20];
+int macArrayIndex = 0;
+float gpsAccuracy = 0; // global for GPS status update display use
+
+// Network Scanning
+int timePerChannel[14] = { 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 50, 50, 50 };  // min 50 max 500ms
+// colors for channels - 1,6,11 are common (GREEN), 12,13,14 are rare (CYAN), the rest are standard (BLUE)
+int colorPerChannel[14] = {GREEN, BLUE, BLUE, BLUE, BLUE, GREEN, BLUE, BLUE, BLUE, BLUE, GREEN, CYAN, CYAN, CYAN};
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Starting...");
+  M5.begin(true, false, true);
+  SPI.begin(23, 33, 19, -1);              // investigate the -1 assignment and esp32 boards
+  while (!SD.begin(15, SPI, 40000000)) {  // assign pin 15 by @hmax42
+    Serial.println("SD Card initialization failed! Retrying...");
+    blinkLED(RED, 500);  // will hang here until SD is readable
+    delay(1000);
+  }
+  Serial.println("SD Card initialized.");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+  Serial.println("WiFi initialized.");
+
+  Serial1.begin(9600, SERIAL_8N1, 22, -1);
+  Serial.println("GPS Serial initialized.");
+  waitForGPSFix();
+  initializeFile();
+}
+
+void loop() {
+  static unsigned long lastBlinkTime = 0;   // when did we blink last?
+  const unsigned long blinkInterval = 3000; // blink Active status every 3 seconds
+
+  Serial.println("* Main Loop: " + String(lastBlinkTime));
+
+  M5.update();
+  if (M5.Btn.wasPressed()) {
+    buttonLedState = !buttonLedState;
+    delay(50);
+  }
+
+  while (Serial1.available() > 0) {
+    gps.encode(Serial1.read());
+  }
+
+  if (gps.location.isValid()) {
+    unsigned long currentMillis = millis();  //get the time here for accurate blinks
+    if (currentMillis - lastBlinkTime >= blinkInterval && buttonLedState) {
+      M5.dis.drawpix(LED_ACTIVE, GREEN);  // Flash green
+      delay(50);  // stay ON for 50ms
+//      M5.dis.clear();
+      M5.dis.drawpix(LED_ACTIVE, OFF); // turn off
+      lastBlinkTime = currentMillis;
+    }
+
+    float lat = gps.location.lat();
+    float lon = gps.location.lng();
+    float altitude = gps.altitude.meters();
+    float accuracy = gps.hdop.hdop();
+    gpsAccuracy = accuracy; // assign to global for update routine use
+
+  Serial.println("*** Entering Channel Scan Loop..." + String(lastBlinkTime));
+
+    char utc[21];
+    sprintf(utc, "%04d-%02d-%02d %02d:%02d:%02d", gps.date.year(), gps.date.month(), gps.date.day(), gps.time.hour(), gps.time.minute(), gps.time.second());
+    // scan hidden, adaptive channel dwell times
+    for (int channel = 1; channel <= 14; channel++) {
+      int numNetworks = WiFi.scanNetworks(false, true, false, timePerChannel[channel - 1], channel);
+      for (int i = 0; i < numNetworks; i++) {
+        char currentMAC[20];
+        strcpy(currentMAC, WiFi.BSSIDstr(i).c_str());
+        if (!isMACSeen(currentMAC)) {
+          strcpy(macAddressArray[macArrayIndex++], currentMAC);
+          if (macArrayIndex >= maxMACs) macArrayIndex = 0;
+          char dataString[300];
+          snprintf(dataString, sizeof(dataString), "%s,\"%s\",%s,%s,%d,%d,%.6f,%.6f,%.2f,%.2f,WIFI", currentMAC, WiFi.SSID(i).c_str(), getAuthType(WiFi.encryptionType(i)), utc, WiFi.channel(i), WiFi.RSSI(i), lat, lon, altitude, accuracy);
+          logData(dataString);
+        }
+      }
+      updateTimePerChannel(channel, numNetworks);  // comment this out to use the static settings above
+
+      // Turn ON the LED for this channel to show active, if our button state say to
+      if (showChannelLED && numNetworks > 0 && buttonLedState) {
+        M5.dis.drawpix(channel - 1, colorPerChannel[channel - 1]);  // turn ON the corresponding channel pixel
+      //  blinkLEDchannel(colorPerChannel[channel - 1],25,channel);   // interval was 65 - slowing things down?
+      }
+
+    }
+  Serial.println("*** Exiting Channel Scan Loop..." + String(lastBlinkTime));
+
+  } else {
+    blinkLED(PURPLE, 250);  // no GPS fix
+  }
+
+  // update GPS status bar -- do this less frequently via global variable
+  updateGpsStatusDisplay(gpsAccuracy,RED);
+
+  // why don't we just turn ALL of the channel LEDs off on each cycle?  more blinky blinky  4/7/2024  this way we see channels per loop
+  if (buttonLedState) {   // if the button says lights are active
+    for (int i=0; i<=14; i++) {  // for all Channel LEDs
+      M5.dis.drawpix(i, OFF);    // turn off
+    }
+  }
+
+  delay(150);  // scan delay, change as needed
+}
+
+void blinkLED(uint32_t color, unsigned long interval) {
+  static unsigned long previousBlinkMillis = 0;
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousBlinkMillis >= interval) {
+    ledState = !ledState;
+//  M5.dis.drawpix(0, ledState ? color : OFF);
+    M5.dis.drawpix(LED_ACTIVE, ledState ? color : OFF); // blink the ACTIVE status LED
+
+    previousBlinkMillis = currentMillis;
+  }
+}
+
+void waitForGPSFix() {
+  Serial.println("Waiting for GPS fix...");
+  while (!gps.location.isValid()) {
+    if (Serial1.available() > 0) {
+      gps.encode(Serial1.read());
+    }
+    blinkLED(PURPLE, 250);
+  }
+  M5.dis.clear();
+  Serial.println("GPS fix obtained.");
+}
+
+void initializeFile() {
+  int fileNumber = 0;
+  bool isNewFile = false;
+  char fileDateStamp[16];
+  sprintf(fileDateStamp, "%04d-%02d-%02d-", gps.date.year(), gps.date.month(), gps.date.day());
+  do {
+    snprintf(fileName, sizeof(fileName), "/AtomWigler-%s%d.csv", fileDateStamp, fileNumber);
+    isNewFile = !SD.exists(fileName);
+    fileNumber++;
+  } while (!isNewFile);
+  if (isNewFile) {
+    File dataFile = SD.open(fileName, FILE_WRITE);
+    if (dataFile) {
+      dataFile.println("WigleWifi-1.4,appRelease=" + BUILD + ",model=AtomWigler,release=" + VERSION + ",device=M5ATOMGPS,display=NONE,board=ESP32,brand=M5");
+      dataFile.println("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type");
+      dataFile.close();
+      Serial.println("New file created: " + String(fileName));
+    }
+  } else {
+    Serial.println("Using existing file: " + String(fileName));
+  }
+}
+
+bool isMACSeen(const char* mac) {
+  for (int i = 0; i < macArrayIndex; i++) {
+    if (strcmp(macAddressArray[i], mac) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void logData(const char* data) {
+  File dataFile = SD.open(fileName, FILE_APPEND);
+  if (dataFile && data) {
+    dataFile.println(data);
+    dataFile.close();
+  } else {
+    Serial.println("Error opening " + String(fileName));
+    blinkLED(RED, 500);
+  }
+}
+
+const char* getAuthType(uint8_t wifiAuth) {
+  switch (wifiAuth) {
+    case WIFI_AUTH_OPEN:
+      return "[OPEN]";
+    case WIFI_AUTH_WEP:
+      return "[WEP]";
+    case WIFI_AUTH_WPA_PSK:
+      return "[WPA_PSK]";
+    case WIFI_AUTH_WPA2_PSK:
+      return "[WPA2_PSK]";
+    case WIFI_AUTH_WPA_WPA2_PSK:
+      return "[WPA_WPA2_PSK]";
+    case WIFI_AUTH_WPA2_ENTERPRISE:
+      return "[WPA2_ENTERPRISE]";
+    case WIFI_AUTH_WPA3_PSK:
+      return "[WPA3_PSK]";
+    case WIFI_AUTH_WPA2_WPA3_PSK:
+      return "[WPA2_WPA3_PSK]";
+    case WIFI_AUTH_WAPI_PSK:
+      return "[WAPI_PSK]";
+    default:
+      return "[UNDEFINED]";
+  }
+}
+
+
+bool findInArray(int value, const int* array, int size) {
+  for (int i = 0; i < size; i++) {
+    if (array[i] == value) return true;
+  }
+  return false;
+}
+
+void updateTimePerChannel(int channel, int networksFound) {  // BETA feature
+  const int FEW_NETWORKS_THRESHOLD = 1;
+  const int MANY_NETWORKS_THRESHOLD = 5;
+  const int TIME_INCREMENT = 50;
+  const int MAX_TIME = 400;
+  const int MIN_TIME = 50;
+
+  // Adjust time based on the number of networks found
+  if (networksFound >= MANY_NETWORKS_THRESHOLD) {
+    timePerChannel[channel - 1] = min(timePerChannel[channel - 1] + TIME_INCREMENT, MAX_TIME);
+  } else if (networksFound <= FEW_NETWORKS_THRESHOLD) {
+    timePerChannel[channel - 1] = max(timePerChannel[channel - 1] - TIME_INCREMENT, MIN_TIME);
+  }
+}
+
+// blink the LED corresponding to the channel position in the matrix
+//   we really don't need the timing code here unles we only change LEDs based on the global timing
+void blinkLEDchannel(uint32_t color, unsigned long interval, int position) {
+  static unsigned long previousBlinkMillis = 0;
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousBlinkMillis >= interval) {
+    ledState = !ledState;
+    M5.dis.drawpix(position - 1, ledState ? color : OFF); // blink the LED corresponding to the channel
+    previousBlinkMillis = currentMillis;
+  }
+}
+
+// use the bottom row of the display as VU meter for GPS accuracy
+//   this is LED positions 20 - 24
+void updateGpsStatusDisplay(float accuracy, int color) {
+  float scaleFactor = 2.25; // delta between VU steps
+  float threshold = 2; // initial threshold for "full" VU meter setting
+  int colorGPS[5] = { 0x200000, 0x400000, 0x600000, 0x800000, 0xA00000 }; // All RED but shades thereof - brighter to the right
+
+  M5.dis.drawpix(20,colorGPS[0]); // if we have a fix, leave first/lowest LED set
+
+// loop through all positions, light LED based on accuracy thresholds
+// more LEDs for more accuracy, so we count backwards from the right
+  for (int i = 24; i > 20; i--) {
+    if (accuracy <= threshold) {
+       M5.dis.drawpix(i, colorGPS[i-20]);
+    } else {
+      M5.dis.drawpix(i, OFF);
+    }
+  //  Serial.println("GPS display: accuracy: "+ String(accuracy) + " , threshold: " + String(threshold));
+    threshold = threshold * scaleFactor;
+  }
+}
