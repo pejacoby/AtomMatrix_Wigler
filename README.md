@@ -1,6 +1,12 @@
 # AtomMatrix_Wigler
 AtomGPS code with additions to do silly things with the AtomMATRIX display unit
 
+# 4/7/24 someday I'll spend timing learning Git, just not today
+I added another version "14" that is built from the latest @lukeswitz v1.40b3 release
+- optimized the LED lights code to make it better reflect the activity, and speed it up
+- I am now seeing performance on-par with a plain AtomGPS unit running Luke's code
+- 
+
 This is NOT a proper fork from other's code... I need to do that at some point...
 
 There are three flags in the code that decide which flashy-lights thing happens:
